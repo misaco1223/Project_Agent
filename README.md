@@ -1,543 +1,521 @@
-# Project Management AI Agent
+# プロジェクト進捗管理AIエージェント
 
-## 1. Overview
+## 概要
 
-自然言語によるプロジェクト管理の依頼に対して、AI Agentがプロジェクト情報やGitHub Issueを取得・分析し、進捗状況やスケジュールリスクを報告するCLIアプリケーションです。
+プロジェクトマネージャー（PM）からの自然言語による依頼を受け、プロジェクトのタスク情報やGitHub Issueを確認し、プロジェクトの進捗状況やスケジュールリスクを確認できるCLI型のAIエージェントです。
 
-また、タスクの進捗更新については、Agentが現在の状態と変更内容を提示し、ユーザーの明示的な承認を得た場合のみ更新を実行します。
+また、タスクの進捗更新を自然言語で依頼し、ユーザーの承認後に `project.json` の進捗を更新できます。
 
-### 主な機能
-
-* プロジェクトタスクの取得
-* GitHub Issueの取得
-* タスクのスケジュールリスク分析
-* プロジェクト情報とGitHub Issueを組み合わせた状況判断
-* 自然言語による進捗更新
-* 更新前のユーザー確認（Human-in-the-loop）
-* `project.json`への進捗情報の永続化
-* CLIによる対話形式での操作
+本プロジェクトでは、LLMによる判断だけに依存せず、TypeScript側で確定的に処理すべき内容はTypeScriptで処理することを意識して設計しています。
 
 ---
 
-## 2. Background / Problem
+## 想定ユーザーと業務シナリオ
 
-プロジェクト管理では、プロジェクト管理ファイルとGitHub Issueなど、複数の情報源を確認しながら進捗や遅延リスクを判断する必要があります。
+### 想定ユーザー
 
-例えば、毎日の進捗確認では、
+プロジェクトマネージャー（PM）を想定しています。
 
-1. プロジェクトのタスク一覧を確認する
-2. 各タスクの進捗と期限を確認する
-3. GitHub Issueの未完了項目を確認する
-4. 遅延リスクを判断する
-5. 現状と対応案をまとめる
+### 業務シナリオ
 
-といった作業が必要になります。
+プロジェクトの進捗確認時に、PMが自然言語でAgentに依頼します。
 
-本アプリでは、これらの情報収集・分析・報告をAI Agentに行わせることで、プロジェクト状況の確認作業を効率化することを目的としています。
+Agentはプロジェクトタスク、GitHub Issue、現在日時をToolから取得し、タスクごとの進捗状況とスケジュールリスクを整理して表示します。
 
----
+また、PMがタスクの進捗更新を依頼した場合は、現在の進捗と更新内容を提示し、ユーザーの承認後に `project.json` の進捗を更新します。
 
-## 3. Target Users
-
-* Web開発プロジェクトのPM
-* PMO
-* 開発チームのプロジェクト進捗を確認するメンバー
+これにより、複数の情報源を個別に確認する作業と、進捗状況を整理する作業を短縮することを目的としています。
 
 ---
 
-## 4. Use Cases
+## 主な機能
 
-### Use Case 1: 毎日の進捗確認
+### 1. プロジェクトタスクの確認
 
-ユーザー：
+自然言語でプロジェクトの進捗確認を依頼できます。
 
 ```text
 タスクの進捗とリスクを確認したい
 ```
 
-Agentは以下の情報を取得します。
+プロジェクトのタスク情報を取得し、以下の情報を表示します。
 
-* プロジェクトタスク
-* GitHub Issue
-* タスクの期限・進捗
+* タスク名
+* 進捗
+* 期限
+* 残り進捗
+* 残り日数
+* 必要進捗ペース
+* スケジュールリスク
+* 関連するGitHub Issue
 
-その後、スケジュールリスクを分析し、現状・リスク・推奨アクションを報告します。
+---
 
-### Use Case 2: タスクの進捗更新
+### 2. スケジュールリスク分析
 
-ユーザー：
+タスクの進捗と期限から、TypeScript側でスケジュールリスクを計算します。
+
+リスクは以下の3段階で判定します。
+
+| リスク | 判定基準                       |
+| --- | -------------------------- |
+| 高   | 必要進捗ペースが25%以上、または期限超過・当日期限 |
+| 中   | 必要進捗ペースが10%以上25%未満         |
+| 低   | 必要進捗ペースが10%未満              |
+
+リスク判定は `analyzeScheduleRisk.ts` で実施し、LLMが判定結果を変更・再評価しない設計としています。
+
+---
+
+### 3. GitHub Issueとの連携
+
+GitHub APIからIssue情報を取得し、スケジュールリスク分析の補足情報として利用します。
+
+取得する主な情報は以下です。
+
+* Issue番号
+* Issueタイトル
+* Issueの状態
+
+GitHub IssueについてはReadOnlyで取得のみを行い、Issueの作成・更新・削除などは行いません。
+
+---
+
+### 4. タスク進捗の更新
+
+自然言語でタスクの進捗更新を依頼できます。
 
 ```text
 API開発を80%に更新したい
 ```
 
-Agentはまず現在のタスク情報を取得し、
-
-```text
-現在の進捗: 70%
-更新後の進捗: 80%
-```
-
-のように変更内容を提示します。
-
-ユーザーが明示的に承認した場合のみ、更新Toolを実行します。
-
-```text
-この内容で進捗を「80%」に更新してよろしいですか？
-
-ユーザー:
-はい
-```
-
-承認後、`project.json`の対象タスクの`progress`を更新します。
-
-### Use Case 3: 更新のキャンセル
-
-ユーザーが更新を承認しなかった場合、更新Toolは実行されません。
-
-```text
-ユーザー:
-いいえ
-
-Agent:
-承知しました。更新は行いません。
-```
-
----
-
-## 5. Demo
-
-### 5.1 Progress / Risk Analysis
-
-```text
-あなた: タスクの進捗とリスクを確認したい
-```
-
-Agentは、
-
-* プロジェクトタスク
-* GitHub Issue
-* スケジュールリスク
-
-を確認し、以下のような形式で報告します。
-
-```text
-API開発
-- 進捗: 70%
-- 期限: 2026-08-10
-- リスク: high
-- 関連Issue: #1, #2, #3
-
-画面開発
-- 進捗: 80%
-- 期限: 2026-08-20
-- リスク: low
-
-テスト
-- 進捗: 20%
-- 期限: 2026-08-30
-- リスク: low
-```
-
-### 5.2 Progress Update
-
-```text
-あなた: API開発を80%に更新したい
-```
-
-Agent：
+更新前に現在のタスク情報を確認し、変更内容を提示します。
 
 ```text
 現在の進捗: 70%
 更新後の進捗: 80%
 
-この内容で進捗を「80%」に更新してよろしいですか？
+この内容で更新してよろしければ「はい」と返信してください。
 ```
 
-ユーザーが承認すると、
+ユーザーが明示的に承認した場合のみ、進捗を更新します。
 
-```text
-update_project_task
-```
-
-が実行され、`project.json`の進捗が更新されます。
-
-### 5.3 Update Cancellation
-
-```text
-あなた: API開発を80%に更新したい
-
-Agent:
-現在70%です。80%に更新してよろしいですか？
-
-あなた: いいえ
-
-Agent:
-更新は行いません。
-```
-
-この場合、プロジェクトデータは変更されません。
+なお、`project.json` で更新可能なのは `progress` のみです。
 
 ---
 
-## 6. Architecture
+## システム構成
 
 ```text
-┌─────────────────────────────┐
-│           User              │
-│     Natural Language        │
-└──────────────┬──────────────┘
+ユーザー
+   │
+   │ 自然言語による依頼
+   ▼
+┌─────────────────────┐
+│      AI Agent       │
+│     (OpenAI API)    │
+└─────────┬───────────┘
+          │
+          │ Tool Calling
+          ▼
+┌───────────────────────────────┐
+│             Tools             │
+├───────────────────────────────┤
+│ get_project_tasks             │
+│ get_github_issues             │
+│ get_current_datetime          │
+│ analyze_schedule_risk         │
+│ update_project_task           │
+└──────────────┬────────────────┘
                │
-               ▼
-┌─────────────────────────────┐
-│        AI Agent             │
-│       OpenAI API            │
-│                             │
-│  Tool selection / Reasoning │
-└──────────────┬──────────────┘
-               │
-       ┌───────┼────────┬──────────────┐
-       ▼       ▼        ▼              ▼
-   Project   GitHub   Risk Analysis   Update
-    Tasks    Issues     (TypeScript)   Task
-       │       │        │              │
-       ▼       ▼        ▼              ▼
-project.json GitHub   Risk Result    project.json
+       ┌───────┴────────┐
+       ▼                ▼
+ project.json       GitHub API
 ```
-
-### Technology Stack
-
-* TypeScript
-* Node.js
-* OpenAI API
-* GitHub REST API
-* `tsx`
-* JSON
 
 ---
 
-## 7. Agent Loop
+## Tool一覧
 
-Agentはユーザーからの自然言語入力を受け取り、必要なToolを選択して実行します。
-
-基本的な処理フローは以下の通りです。
-
-```text
-User Input
-    ↓
-LLM
-    ↓
-Tool Selection
-    ↓
-Tool Execution
-    ↓
-Tool Result
-    ↓
-LLM
-    ↓
-Final Response
-```
-
-例えば進捗・リスク確認では、
-
-```text
-User
- ↓
-get_project_tasks
- ↓
-get_github_issues
- ↓
-analyze_schedule_risk
- ↓
-LLMによる総合判断
- ↓
-Userへの報告
-```
-
-という流れになります。
+| Tool                    | 役割             | 操作              |
+| ----------------------- | -------------- | --------------- |
+| `get_project_tasks`     | プロジェクトタスク取得    | 読み取り            |
+| `get_github_issues`     | GitHub Issue取得 | 読み取り            |
+| `get_current_datetime`  | 現在日時取得         | 取得              |
+| `analyze_schedule_risk` | スケジュールリスク分析    | TypeScriptで計算   |
+| `update_project_task`   | タスク進捗更新        | `progress` のみ更新 |
 
 ---
 
-## 8. Tools
+## 設計上のポイント
 
-### `get_project_tasks`
+### 1. 現在日時をToolから取得
 
-`data/project.json`からプロジェクトとタスク情報を取得します。
+現在日時をLLMに推測させず、`get_current_datetime` Toolから取得した日時のみを使用します。
 
-取得する主な情報：
-
-* Task ID
-* Task Name
-* Progress
-* Deadline
-* Status
-
-### `get_github_issues`
-
-GitHub REST APIからIssue一覧を取得します。
-
-取得する情報：
-
-* Issue Number
-* Title
-* State
-
-GitHub APIは本アプリではReadOnlyで利用しています。
-
-### `analyze_schedule_risk`
-
-TypeScript側でタスクの期限と進捗からスケジュールリスクを計算します。
-
-主な計算項目：
-
-* 残日数
-* 残進捗
-* 期限までに必要な1日あたりの進捗率
-* リスクレベル（high / medium / low）
-
-計算結果とGitHub Issue情報をLLMへ渡し、最終的な状況判断を行います。
-
-### `update_project_task`
-
-ユーザーの明示的な承認後に、指定されたタスクの`progress`を更新します。
-
-更新対象は`progress`のみです。
-
-* Task Name：更新不可
-* Deadline：更新不可
-* Status：更新不可
-* Progress：更新可能
+スケジュールリスク分析では、この日時を基準日として使用します。
 
 ---
 
-## 9. Data Model
+### 2. リスク判定をTypeScript側で実施
 
-### Project
+スケジュールリスクはLLMに自由に判断させず、TypeScriptの `analyzeScheduleRisk` で計算します。
 
-```json
-{
-  "projectName": "Webシステム開発プロジェクト",
-  "tasks": []
-}
-```
+これにより、同じ条件であれば同じ判定結果になるようにしています。
 
-### Task
-
-```json
-{
-  "id": 1,
-  "name": "API開発",
-  "progress": 70,
-  "deadline": "2026-08-10",
-  "status": "in_progress"
-}
-```
-
-### Schedule Risk
+LLMは計算された `risk` を変更せず、結果を日本語で表示します。
 
 ```text
-high
-medium
-low
+high   → 高
+medium → 中
+low    → 低
 ```
-
-リスク分析では以下の情報を生成します。
-
-* Task ID
-* Task Name
-* Progress
-* Deadline
-* Remaining Days
-* Remaining Progress
-* Required Progress Per Day
-* Risk
 
 ---
 
-## 10. Error Handling
+### 3. Toolの実行権限を明確化
 
-以下のようなエラーを想定しています。
+現在のToolで実行できない操作について、Agentが実行したかのように回答しないようにしています。
 
-### 存在しないタスクID
-
-```text
-タスクID 999を50%に更新して
-```
-
-存在しないタスクの場合、更新を実行せず、ユーザーに対象タスクが存在しないことを伝えます。
-
-### 不正な進捗値
-
-進捗率は0〜100の整数のみ受け付けます。
+例えば、GitHub Issueの更新機能は実装していないため、
 
 ```text
--1
-101
-50.5
+GitHub Issueを更新します
 ```
 
-などの値は更新できません。
-
-### GitHub APIエラー
-
-GitHub APIから正常なレスポンスを取得できなかった場合は、APIエラーとして処理します。
-
-### 必要な環境変数がない場合
-
-GitHub連携に必要な環境変数が設定されていない場合はエラーとして通知します。
+とは案内せず、実行できない操作と対応案を区別します。
 
 ---
 
-## 11. Security
+### 4. 進捗更新にはユーザーの承認が必要
 
-### API Key / Token
+進捗更新を依頼された場合でも、すぐに更新処理を実行しません。
 
-API KeyやGitHub Tokenはソースコードに直接記述せず、環境変数から取得します。
+以下の順番で処理します。
 
-```text
-OPENAI_API_KEY
-GITHUB_TOKEN
-GITHUB_OWNER
-GITHUB_REPO
-```
+1. 現在のタスク情報を取得
+2. 現在の進捗を確認
+3. 更新後の進捗を提示
+4. ユーザーに確認
+5. 承認された場合のみ更新
 
-`.env`はGit管理対象外とし、`.env.example`を提供します。
-
-### GitHub Access
-
-GitHub APIはIssueの取得にのみ利用し、Issueの作成・更新・削除は行いません。
-
-### Update Approval
-
-プロジェクトデータを変更する操作については、ユーザーの明示的な承認後にのみ更新Toolを実行します。
+これにより、Agentの判断だけでプロジェクトデータが変更されることを防いでいます。
 
 ---
-## 12. Setup
 
-### Requirements
+### 5. エラーハンドリング方針
 
-* Node.js
-* npm
-* OpenAI API Key
-* GitHub Personal Access Token
+GitHub APIなどの外部API呼び出しでエラーが発生した場合は、エラーとして扱います。
 
-### Install
+また、Toolから必要な情報を取得できない場合は、推測によって情報を補完せず、不明な情報として扱う方針としています。
+
+---
+
+## 使用したLLM API
+
+### OpenAI API
+
+LLM APIにはOpenAI APIを使用しています。
+
+今回のエージェントでは、ユーザーの自然言語による依頼を受け、必要に応じて複数のToolを呼び出し、その結果をもとに最終回答を生成する構成としました。
+
+OpenAI APIはTool Callingを利用でき、TypeScriptからToolの定義や呼び出しを比較的シンプルに実装できるため、今回のCLI型エージェントの構成に適していると判断しました。
+
+また、LLMによる判断とTypeScript側で行う確定的な処理を分離しやすい点も、今回の設計と相性がよいと考えました。
+
+### モデル変更時に影響を受ける箇所
+
+モデルを変更する場合は、主にAgentからLLM APIを呼び出している部分に影響します。
+
+Toolの定義やTypeScript側の処理はLLMモデルとは分離しているため、基本的にはモデル設定を変更することで別モデルを利用できます。
+
+ただし、モデルによってTool Callingの挙動や出力形式、性能が異なる可能性があるため、変更時には各Toolが正しく呼び出されることと、最終回答が想定どおり生成されることを確認する必要があります。
+
+### APIキー・シークレット
+
+OpenAI API KeyおよびGitHub Tokenは `.env` に設定します。
+
+`.env` はGitHubにコミットしないよう `.gitignore` に設定しています。
+
+### コストについて
+
+本プロジェクトでは、必要な情報取得やTool Callingに限定してLLMを利用しています。
+
+一方、スケジュールリスクの計算など、ルールとして定義できる処理はTypeScript側で実行することで、LLMによる不要な処理や追加のAPI利用を抑えています。
+
+---
+
+## 入力例
+
+### うまくいく入力例
+
+対象や依頼内容が明確な場合は、Agentが必要なToolを呼び出して処理します。
+
+```text
+タスクの進捗とリスクを確認したい
+```
+
+```text
+テストの進捗を10%にしてください
+```
+
+---
+
+### 苦手な入力例
+
+以下のように、対象タスクや更新内容を特定できない依頼には対応できません。
+
+```text
+進捗を更新して
+```
+
+```text
+あのタスクを50%にして
+```
+
+この場合、対象タスクや必要な情報を推測せず、確認を求めます。
+
+---
+
+## セットアップ
+
+### 1. リポジトリを取得
+
+```bash
+git clone <リポジトリURL>
+cd project-agent
+```
+
+### 2. パッケージをインストール
 
 ```bash
 npm install
 ```
 
-### Environment Variables
+### 3. プロジェクト情報を設定
 
-`.env.example`を参考に`.env`を作成します。
+`data/project.json` にプロジェクトのタスク情報を設定します。
 
-```text
-OPENAI_API_KEY=
-GITHUB_TOKEN=
-GITHUB_OWNER=
-GITHUB_REPO=
+設定できる項目は以下です。
+
+* プロジェクト名
+* タスクID
+* タスク名
+* 進捗率
+* Deadline
+* Status
+
+例：
+
+```json
+{
+  "projectName": "Webシステム開発プロジェクト",
+  "tasks": [
+    {
+      "id": 1,
+      "name": "API開発",
+      "progress": 80,
+      "deadline": "2026-08-10",
+      "status": "in_progress"
+    },
+    {
+      "id": 2,
+      "name": "画面開発",
+      "progress": 80,
+      "deadline": "2026-08-20",
+      "status": "in_progress"
+    }
+  ]
+}
 ```
 
-以下の環境変数を設定してください。
+### 4. 環境変数を設定
 
-| Variable         | Description                |
-| ---------------- | -------------------------- |
-| `OPENAI_API_KEY` | OpenAI APIを利用するためのAPI Key  |
-| `GITHUB_TOKEN`   | GitHub APIへのアクセスに使用するToken |
-| `GITHUB_OWNER`   | GitHubリポジトリのOwner          |
-| `GITHUB_REPO`    | GitHubリポジトリ名               |
+`.env` を作成し、OpenAI API KeyとGitHubの接続情報を設定します。
 
-### Run
+```env
+OPENAI_API_KEY=your_openai_api_key
+GITHUB_TOKEN=your_github_token
+GITHUB_OWNER=your_github_owner
+GITHUB_REPO=your_repository_name
+```
+
+例えば、対象リポジトリが
+
+```text
+https://github.com/example/project-agent
+```
+
+の場合、
+
+```env
+GITHUB_OWNER=example
+GITHUB_REPO=project-agent
+```
+
+と設定します。
+
+Agentは指定したGitHubリポジトリのIssue一覧を取得し、スケジュールリスク分析に利用します。
+
+GitHub Issueの作成・更新・削除などは行わず、Issue情報の取得のみを行います。
+
+`.env` にはAPI KeyやGitHub Tokenなどの機密情報が含まれるため、GitHubへコミットしないでください。
+
+### 5. Agentを起動
 
 ```bash
 npm run dev
 ```
 
----
-
-## 13. Usage
-
-アプリケーションを起動すると、CLI上で自然言語による指示を入力できます。
+起動すると以下のように表示されます。
 
 ```text
-$ npm run dev
-
 プロジェクト管理Agentを起動しました。
 終了する場合は「exit」または「quit」と入力してください。
 
+あなた:
+```
+
+---
+
+## デモ
+
+### 1. 進捗・リスク確認
+
+```text
 あなた: タスクの進捗とリスクを確認したい
 ```
 
-Agentは必要に応じて以下のToolを呼び出します。
+Agentがプロジェクトタスク、GitHub Issue、現在日時を取得し、タスクごとのスケジュールリスクを表示します。
+
+出力例：
 
 ```text
-get_project_tasks
-get_github_issues
-analyze_schedule_risk
+1) API開発
+- 進捗: 80%
+- 期限: 2026-08-10
+- 残り進捗: 20%
+- 残り日数: 0日
+- 必要進捗/日: 20%/日
+- リスク: 高
+- 関連GitHub Issue:
+  - #1 API認証処理が未完了 (open)
+  - #2 APIエラーハンドリング (open)
+  - #3 APIレスポンスの修正 (open)
+
+2) 画面開発
+- 進捗: 80%
+- 期限: 2026-08-20
+- 残り進捗: 20%
+- 残り日数: 10日
+- 必要進捗/日: 2%/日
+- リスク: 低
+- 関連GitHub Issue:
+  - #4 画面レイアウト調整 (open)
+
+3) テスト
+- 進捗: 20%
+- 期限: 2026-08-30
+- 残り進捗: 80%
+- 残り日数: 20日
+- 必要進捗/日: 4%/日
+- リスク: 低
+- 関連GitHub Issue:
+  - #5 テストケース作成 (open)
 ```
 
-タスクの進捗更新を依頼する場合は、変更前の状態を確認したうえで、ユーザーに更新内容を提示します。
+### 2. 進捗更新
 
 ```text
-あなた: API開発を80%に更新したい
-
-Agent:
-現在の進捗: 70%
-更新後の進捗: 80%
-
-この内容で進捗を「80%」に更新してよろしいですか？
+あなた: テストの進捗を10%にしてください
 ```
 
-ユーザーが承認した場合のみ、
+Agentが現在の進捗を確認した後、更新内容を提示します。
 
 ```text
-update_project_task
+現在の進捗: 20%
+更新後の進捗: 10%
+
+この内容で更新してよろしければ「はい」と返信してください。
 ```
 
-が実行されます。
+ユーザーが承認すると、`update_project_task` を実行して進捗を更新します。
 
-### Exit
+---
 
-以下のいずれかを入力するとAgentを終了します。
+## 制約事項
+
+現在の実装では、以下の操作には対応していません。
+
+* GitHub Issueの作成・更新・削除
+* GitHub Issueの担当者変更
+* 担当者の自動アサイン
+* リソースの追加
+* タスクの作成・削除
+* タスク名の変更
+* Deadlineの変更
+* Statusの変更
+
+また、`project.json` で更新できるのは `progress` のみです。
+
+---
+
+## プロジェクト構成
 
 ```text
-exit
-```
-
-または
-
-```text
-quit
+project-agent/
+├── src/
+│   ├── domain/
+│   │   └── analyzeScheduleRisk.ts
+│   │
+│   ├── agent/
+│   │   ├── loop.ts
+│   │   └── systemPrompt.ts
+│   │
+│   ├── tools/
+│   │   ├── getProjectTasks.ts
+│   │   ├── getGithubIssues.ts
+│   │   ├── getCurrentDateTime.ts
+│   │   └── updateProjectTask.ts
+│   │
+│   └── index.ts
+│
+├── data/
+│   └── project.json
+│
+├── .env
+├── .gitignore
+├── package.json
+├── tsconfig.json
+└── README.md
 ```
 
 ---
 
-## 14. Limitations
+## 使用技術
 
-現在の実装には以下の制約があります。
-
-* GitHub APIはReadOnlyであり、Issueの作成・更新・削除はできない
-* プロジェクトデータとして更新できるのはタスクの`progress`のみ
-* タスクの作成・削除はできない
-* DeadlineやStatusをユーザーから直接変更することはできない
-* プロジェクトデータはJSONファイルで管理している
-* GitHub Issueとプロジェクトタスクの関連付けは、取得したIssue情報をもとにAgentが判断する
-* 担当者の自動アサインやリソース調整などの操作は実行できない
+* TypeScript
+* Node.js
+* OpenAI API
+* GitHub API
+* tsx
+* dotenv
 
 ---
 
-## 15. Future Improvements
+## 実務投入する場合の改善点
 
-* データベースによるプロジェクト情報管理
-* タスクの作成・削除・期限変更への対応
-* GitHub Issueとプロジェクトタスクの明示的な関連付け
-* GitHub Issueの更新機能
-* 担当者・アサイン情報の管理
-* Slackなどへの通知機能
-* Web UI / ダッシュボードの追加
-* リスク分析ロジックの高度化
-* 自動テストの追加・拡充
-* 複数プロジェクトへの対応
+現在の実装は、小規模なCLI型エージェントとして構成しています。
 
-```
-```
+実務投入する場合は、以下の機能を追加することで、より実運用に近い構成にできると考えています。
+
+* GitHub Issueの作成・更新機能
+* タスクの追加・削除
+* DeadlineやStatusの更新
+* 担当者管理
+* プロジェクト全体の進捗レポート生成
+* エラー発生時のリトライ
+* 実行ログの記録
+* コスト・レイテンシの計測
+* Web UI化
+* CI/CDとの連携
