@@ -1,0 +1,26 @@
+{
+  "name": "project-agent",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "プロジェクト管理ファイルとGitHub Issueを横断した進捗確認、遅延リスクの判断、対応案作成、プロジェクト情報の更新にかかる時間を短縮する。",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.11",
+    "typescript": "5.9"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "openai": "^7.4.0"
+  }
+}

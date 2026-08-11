@@ -1,0 +1,26 @@
+{
+  "projectName": "Webシステム開発プロジェクト",
+  "tasks": [
+    {
+      "id": 1,
+      "name": "API開発",
+      "progress": 70,
+      "deadline": "2026-08-10",
+      "status": "in_progress"
+    },
+    {
+      "id": 2,
+      "name": "画面開発",
+      "progress": 80,
+      "deadline": "2026-08-20",
+      "status": "in_progress"
+    },
+    {
+      "id": 3,
+      "name": "テスト",
+      "progress": 20,
+      "deadline": "2026-08-30",
+      "status": "not_started"
+    }
+  ]
+}
