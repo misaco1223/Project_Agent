@@ -20,9 +20,11 @@ export interface ScheduleRiskResult {
 
 export function analyzeScheduleRisk(
   task: TaskForRiskAnalysis,
-  today: Date = new Date(),
+  today: Date,
 ): ScheduleRiskResult {
-  const deadline = new Date(`${task.deadline}T23:59:59`);
+  const deadline = new Date(
+    `${task.deadline}T23:59:59+09:00`,
+  );
 
   const millisecondsPerDay = 1000 * 60 * 60 * 24;
 
