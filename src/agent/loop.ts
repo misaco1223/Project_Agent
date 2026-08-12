@@ -35,12 +35,22 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
+/**
+ * AI Agentを実行する
+ *
+ * ユーザーからの入力をLLMに渡し、
+ * LLMが必要と判断したToolを実行する。
+ *
+ * Toolの実行結果をLLMへ返し、
+ * 追加のTool実行が必要なくなるまで処理を繰り返す。
+ */
+
 export async function runAgent(
   client: OpenAI,
   input: string,
   previousResponseId?: string,
 ) {
-  // 7. .envのAPIキーがない場合
+  // .envのAPIキーがない場合
   if (!process.env.OPENAI_API_KEY) {
     throw new Error(
       "OPENAI_API_KEYが設定されていません。.envファイルを確認してください。",
@@ -49,7 +59,16 @@ export async function runAgent(
 
   let response: OpenAI.Responses.Response;
 
-  // 1. OpenAI API呼び出しの失敗
+  // --------------------------------------------------
+  // 最初のLLM呼び出し
+  // --------------------------------------------------
+  //
+  // ユーザーの入力とAgentのルールをLLMに渡し、
+  // 必要に応じてToolを呼び出すようにする。
+  //
+  // previousResponseIdがある場合は、
+  // 直前のLLMとの会話を引き継ぐ。
+  //
   try {
     response = await client.responses.create({
       model: "gpt-5-mini",
@@ -136,7 +155,7 @@ export async function runAgent(
         : {}),
     });
 
-    // 6. APIレスポンスが想定形式でない場合
+    // APIレスポンスが想定形式でない場合
     if (!isValidResponse(response)) {
       throw new Error(
         "OpenAI APIから想定外のレスポンスが返されました。",
@@ -148,7 +167,13 @@ export async function runAgent(
     );
   }
 
-  // Agentが取得した情報を保持する
+  // --------------------------------------------------
+  // AgentがToolから取得した情報を保持する
+  // --------------------------------------------------
+  //
+  // 複数のToolをまたいで情報を利用できるよう、
+  // Agent Loopの実行中は取得したデータを保持する。
+  //
   let projectData: ProjectData | undefined;
   let githubIssues: GithubIssues | undefined;
 
@@ -163,27 +188,36 @@ export async function runAgent(
 
   let loopCount = 0;
 
+  // --------------------------------------------------
+  // Agent Loop
+  // --------------------------------------------------
+  //
+  // LLMがToolを必要と判断している間は、
+  // Toolを実行 → 結果をLLMへ返す、という処理を繰り返す。
+  //
   while (true) {
-    // 8. Agent Loopが異常終了・無限ループする場合
     loopCount++;
 
+    // Agent LoopがLLMの最大実行回数を超えた場合
     if (loopCount > MAX_LOOP_COUNT) {
       throw new Error(
         `Agent Loopが最大実行回数(${MAX_LOOP_COUNT}回)を超えました。処理を終了します。`,
       );
     }
 
-    // 6. APIレスポンスが想定形式でない場合
+    // APIレスポンスが想定形式でない場合
     if (!response || !Array.isArray(response.output)) {
       throw new Error(
         "Agentから想定外のレスポンスが返されました。",
       );
     }
 
+    
     const toolCalls = response.output.filter(
       (item) => item.type === "function_call",
     );
 
+    
     if (toolCalls.length === 0) {
       return {
         text: response.output_text,
@@ -191,13 +225,21 @@ export async function runAgent(
       };
     }
 
+    // 複数のTool Callingが返された場合に備えて、
+    // それぞれのToolを実行して結果をまとめる。
     const toolOutputs = [];
 
     for (const toolCall of toolCalls) {
       let result: unknown;
 
       try {
-        // 3. Tool Callingで想定外のToolが指定された場合
+        // --------------------------------------------------
+        // Toolの実行
+        // --------------------------------------------------
+        //
+        // LLMが指定したTool名を確認し、
+        // 対応するTypeScriptの関数を実行する。
+        //
         if (
           ![
             "get_project_tasks",
@@ -210,14 +252,16 @@ export async function runAgent(
           throw new Error(`Unknown tool: ${toolCall.name}`);
         }
 
+        // プロジェクトのタスク情報を取得する
         if (toolCall.name === "get_project_tasks") {
           projectData = await getProjectTasks();
           result = projectData;
 
+        // GitHub Issueを取得する
         } else if (toolCall.name === "get_github_issues") {
           githubIssues = await getGithubIssues();
 
-          // 5. GitHubにIssueが存在しない場合
+          // GitHubにIssueが存在しない場合
           if (Array.isArray(githubIssues) && githubIssues.length === 0) {
             result = {
               issues: [],
@@ -227,11 +271,20 @@ export async function runAgent(
             result = githubIssues;
           }
 
+        // 現在日時を取得する
         } else if (toolCall.name === "get_current_datetime") {
           currentDateTime = getCurrentDateTime();
           result = currentDateTime;
 
+        // スケジュールリスクを分析する
         } else if (toolCall.name === "analyze_schedule_risk") {
+          // --------------------------------------------------
+          // リスク分析に必要な情報を準備
+          // --------------------------------------------------
+          //
+          // 必要な情報がまだ取得されていない場合は、
+          // ここで取得する。
+          //
           if (!projectData) {
             projectData = await getProjectTasks();
           }
@@ -249,7 +302,13 @@ export async function runAgent(
             `${currentDateTime.date}T00:00:00+09:00`,
           );
 
-          // TypeScript側でリスクを計算する
+          // --------------------------------------------------
+          // スケジュールリスクの計算
+          // --------------------------------------------------
+          //
+          // リスク判定はLLMに任せず、
+          // TypeScript側の関数で決定的に計算する。
+          //
           scheduleRisks = projectData.tasks.map(
             (task: Task) => analyzeScheduleRisk(task, today),
           );
@@ -262,13 +321,15 @@ export async function runAgent(
             currentDateTime,
           };
 
+        // タスクの進捗を更新する
         } else if (toolCall.name === "update_project_task") {
-          // 6. Toolのargumentsが想定形式でない場合
+          // Toolのargumentsが想定形式でない場合
           let args: {
             taskId: number;
             progress: number;
           };
 
+          // LLMから渡された引数をJSONとして解析する
           try {
             args = JSON.parse(toolCall.arguments);
           } catch {
@@ -277,6 +338,7 @@ export async function runAgent(
             );
           }
 
+          // taskIdとprogressが数値であることを確認する
           if (
             typeof args.taskId !== "number" ||
             typeof args.progress !== "number"
@@ -286,31 +348,39 @@ export async function runAgent(
             );
           }
 
+          // progressが許容範囲内であることを確認する
           if (args.progress < 0 || args.progress > 100) {
             throw new Error(
               "progressは0〜100の範囲で指定してください。",
             );
           }
 
+          // 更新対象のタスク情報がまだ取得されていない場合は取得する
           if (!projectData) {
             projectData = await getProjectTasks();
           }
 
+          // TypeScript側の更新処理を実行する
           result = await updateProjectTask(
             args.taskId,
             args.progress,
           );
         }
 
+        // --------------------------------------------------
+        // Toolの実行結果をLLMへ返すための形式に変換
+        // --------------------------------------------------
+        //
+        // Toolの実行結果をJSON文字列としてLLMへ返す。
         toolOutputs.push({
           type: "function_call_output" as const,
           call_id: toolCall.call_id,
           output: JSON.stringify(result),
         });
       } catch (error) {
-        // 2. GitHub API呼び出しの失敗
-        // 4. Tool実行時のエラー
-        // 3. 想定外Tool
+        // GitHub API呼び出しの失敗
+        // Tool実行時のエラー
+        // 想定外Tool
         //
         // ToolのエラーでAgent全体を即終了させず、
         // エラー内容をLLMへ返してAgentに判断させる。
@@ -321,6 +391,7 @@ export async function runAgent(
           errorMessage,
         );
 
+        // エラーもToolの実行結果としてLLMへ返す
         toolOutputs.push({
           type: "function_call_output" as const,
           call_id: toolCall.call_id,
@@ -333,7 +404,14 @@ export async function runAgent(
       }
     }
 
-    // 1. OpenAI API呼び出しの失敗
+    // --------------------------------------------------
+    // Tool実行結果をLLMへ返す
+    // --------------------------------------------------
+    //
+    // Toolの結果をLLMに渡し、
+    // 追加のTool実行が必要か、最終回答を返せるかを
+    // LLMに判断させる。
+    //
     try {
       response = await client.responses.create({
         model: "gpt-5-mini",
@@ -341,7 +419,7 @@ export async function runAgent(
         input: toolOutputs,
       });
 
-      // 6. APIレスポンスが想定形式でない場合
+      // APIレスポンスが想定形式でない場合
       if (!isValidResponse(response)) {
         throw new Error(
           "OpenAI APIから想定外のレスポンスが返されました。",

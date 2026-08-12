@@ -2,7 +2,7 @@
   "name": "project-agent",
   "version": "1.0.0",
   "type": "module",
-  "description": "プロジェクト管理ファイルとGitHub Issueを横断した進捗確認、遅延リスクの判断、対応案作成、プロジェクト情報の更新にかかる時間を短縮する。",
+  "description": "プロジェクトのタスク情報やGitHub Issueを確認し、スケジュールリスクの分析やタスク進捗の更新を行うCLI型AIエージェント",
   "main": "index.js",
   "directories": {
     "test": "tests"
