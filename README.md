@@ -137,13 +137,13 @@ API開発を80%に更新したい
     ↓
 LLMへ依頼
     ↓
-LLMが必要なToolを判断 ←────────┐
+LLMが必要なToolを判断 ←──────────┐
     ↓                          │
-Toolを実行                     │
+Toolを実行                      │
     ↓                          │
-Tool実行結果をLLMへ返す         │
+Tool実行結果をLLMへ返す           │
     ↓                          │
-追加のTool Callingが必要？      │
+追加のTool Callingが必要？      　│
     ├─ Yes ────────────────────┘
     │
     └─ No → 最終回答
