@@ -132,22 +132,7 @@ API開発を80%に更新したい
 ```
 
 ### Agent Loop
-```
-ユーザー入力
-    ↓
-LLMへ依頼
-    ↓
-LLMが必要なToolを判断 ←──────────┐
-    ↓                          │
-Toolを実行                      │
-    ↓                          │
-Tool実行結果をLLMへ返す           │
-    ↓                          │
-追加のTool Callingが必要？      　│
-    ├─ Yes ────────────────────┘
-    │
-    └─ No → 最終回答
-```
+![AgentLoop](./assets/agentLoop.png)
 
 ---
 
