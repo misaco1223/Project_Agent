@@ -4,14 +4,14 @@
     {
       "id": 1,
       "name": "API開発",
-      "progress": 90,
-      "deadline": "2026-08-10",
+      "progress": 70,
+      "deadline": "2026-08-15",
       "status": "in_progress"
     },
     {
       "id": 2,
       "name": "画面開発",
-      "progress": 50,
+      "progress": 40,
       "deadline": "2026-08-20",
       "status": "in_progress"
     },
